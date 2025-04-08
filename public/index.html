@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>URL Extractor</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    #urlInput { width: 500px; padding: 8px; }
+    button { padding: 8px 15px; }
+    #result { margin-top: 20px; word-break: break-all; }
+  </style>
+</head>
+<body>
+  <h2>Google News URL Extractor</h2>
+  <input type="text" id="urlInput" placeholder="Paste Google News URL here">
+  <button onclick="extractUrl()">Extract Target URL</button>
+  <div id="result"></div>
+  
+  <script>
+    function extractUrl() {
+      const url = document.getElementById('urlInput').value;
+      document.getElementById('result').innerHTML = "Extracting...";
+      
+      fetch(`/extract?url=${encodeURIComponent(url)}`)
+        .then(response => response.json())
+        .then(data => {
+          if (data.targetUrl) {
+            document.getElementById('result').innerHTML = 
+              `<b>Target URL:</b> <a href="${data.targetUrl}" target="_blank">${data.targetUrl}</a>`;
+          } else {
+            document.getElementById('result').innerHTML = 
+              `<span style="color:red">Error: ${data.error}</span>`;
+          }
+        })
+        .catch(error => {
+          document.getElementById('result').innerHTML = 
+            `<span style="color:red">Error: ${error.message}</span>`;
+        });
+    }
+  </script>
+</body>
+</html>
