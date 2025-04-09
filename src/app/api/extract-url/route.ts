@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import puppeteer from 'puppeteer-core';
 import chromium from '@sparticuz/chromium-min';
+import { setTimeout } from 'timers/promises';
 
-// List of known news domains for prioritization (not hard-coded matching)
+// List of known news domains for prioritization
 const newsDomains = [
   'bbc.com', 'bbc.co.uk', 'nytimes.com', 'washingtonpost.com', 'theguardian.com',
   'cnn.com', 'reuters.com', 'bloomberg.com', 'ft.com', 'wsj.com', 'forbes.com',
@@ -17,6 +18,57 @@ const excludePatterns = [
   'beacon', '.js', '.css', '.png', '.jpg', '.gif', '.svg', 'favicon', 'wp-content',
   'logo', 'assets', 'static', 'metrics', 'stats', 'events', 'collect'
 ];
+
+/**
+ * Attempts to launch the browser with retries to handle ETXTBSY errors
+ */
+async function launchBrowserWithRetry(maxRetries = 3, delay = 1000) {
+  let browser = null;
+  let retries = 0;
+  let lastError: Error | null = null;
+
+  // Configure chromium for serverless environment
+  chromium.setGraphicsMode = false;
+
+  while (retries < maxRetries) {
+    try {
+      console.log(`Attempt ${retries + 1} to launch browser`);
+      
+      // Get executable path with cache in /tmp
+      const executablePath = await chromium.executablePath("/tmp");
+      console.log(`Chromium executable path: ${executablePath}`);
+      
+      // Launch browser with minimal args
+      browser = await puppeteer.launch({
+        args: [...chromium.args, '--no-sandbox'],
+        executablePath: executablePath,
+        defaultViewport: chromium.defaultViewport,
+        headless: chromium.headless,
+      });
+      
+      console.log("Browser launched successfully");
+      return browser;
+    } catch (error) {
+      // Properly type the error
+      const typedError = error as Error;
+      lastError = typedError;
+      console.error(`Browser launch attempt ${retries + 1} failed:`, typedError.message);
+      
+      // If this is ETXTBSY error, wait and retry
+      if (typedError.message.includes('ETXTBSY')) {
+        console.log(`ETXTBSY error detected, waiting ${delay}ms before retry`);
+        await setTimeout(delay);
+        retries++;
+      } else {
+        // For other errors, throw immediately
+        throw typedError;
+      }
+    }
+  }
+  
+  // If we've exhausted retries, throw the last error
+  throw lastError;
+}
 
 /**
  * API handler for POST requests
@@ -46,23 +98,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Configure chromium for serverless environment
-    chromium.setGraphicsMode = false;
-    
-    // Get executable path with proper await and cache folder specification
-    const executablePath = await chromium.executablePath("/tmp");
-    console.log(`Chromium executable path: ${executablePath}`);
-    
-    // Setup Puppeteer with properly awaited executable path
-    browser = await puppeteer.launch({
-      args: chromium.args,
-      defaultViewport: chromium.defaultViewport,
-      executablePath: executablePath,
-      headless: chromium.headless,
-      ignoreHTTPSErrors: true,
-    });
-
-    console.log("Browser launched successfully");
+    // Launch browser with retry mechanism for ETXTBSY errors
+    browser = await launchBrowserWithRetry();
     
     // Create a new page
     const page = await browser.newPage();
@@ -70,86 +107,98 @@ export async function POST(request: NextRequest) {
     // Set a realistic user agent
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36');
     
-    // Record all redirects
-    const redirectUrls: string[] = [];
-    page.on('request', request => {
-      const url = request.url();
-      if (!url.includes('google.com') && !excludePatterns.some(pattern => url.includes(pattern))) {
-        redirectUrls.push(url);
-      }
-    });
-    
     // Collect candidate URLs
-    const candidateUrls: any[] = [];
+    const candidateUrls: string[] = [];
+    const redirectUrls: string[] = [];
     
+    // Track redirects
+    page.on('request', request => {
+      const requestUrl = request.url();
+      if (!requestUrl.includes('google.com') && 
+          !excludePatterns.some(pattern => requestUrl.includes(pattern))) {
+        if (!redirectUrls.includes(requestUrl)) {
+          redirectUrls.push(requestUrl);
+        }
+      }
+    });
+    
+    // Navigate to the URL with a shorter timeout
     console.log(`Navigating to URL: ${url}`);
+    try {
+      await page.goto(url, { 
+        waitUntil: 'domcontentloaded', 
+        timeout: 20000 
+      });
+    } catch (e) {
+      const error = e as Error;
+      console.log('Navigation timeout or error (expected for redirects):', error.message);
+      // Continue anyway as we might have captured redirects
+    }
     
-    // Navigate with proper options
-    await page.goto(url, { 
-      waitUntil: 'domcontentloaded', 
-      timeout: 30000 
-    }).catch(e => {
-      console.log('Navigation handled (expected for redirects):', e.message);
-    });
+    // Wait for JavaScript to run and possible redirects
+    await setTimeout(3000);
     
-    console.log("Page loaded, waiting for JavaScript execution");
-    
-    // Wait for redirects to happen
-    await new Promise(r => setTimeout(r, 5000));
-    
-    // Get all links from the page
-    const links = await page.evaluate(() => {
-      // Look for links with specific attributes that Google News typically uses
-      const allLinks = [
-        ...Array.from(document.querySelectorAll('a[target="_blank"]')),
-        ...Array.from(document.querySelectorAll('a.DY5T1d')),
-        ...Array.from(document.querySelectorAll('a.VDXfz')),
-        ...Array.from(document.querySelectorAll('c-wiz a')),
-        ...Array.from(document.querySelectorAll('article a')),
-        ...Array.from(document.querySelectorAll('h3 a, h4 a'))
-      ];
-      
-      return Array.from(new Set(
-        allLinks.map(a => (a as HTMLAnchorElement).href)
-          .filter(href => href && (href.startsWith('http://') || href.startsWith('https://')))
-      ));
-    }).catch(e => {
-      console.log("Error in page evaluation:", e);
-      return [];
-    });
-    
-    console.log(`Found ${links.length} links on the page`);
-    
-    // Filter the links to find likely article URLs
-    links.forEach(link => {
-      // Skip Google domains
-      if (link.includes('google.com') || link.includes('gstatic.com')) {
-        return;
-      }
-      
-      // Skip URLs matching exclusion patterns
-      if (excludePatterns.some(pattern => link.includes(pattern))) {
-        return;
-      }
-      
-      // Prioritize known news domains
-      if (newsDomains.some(domain => link.includes(domain))) {
-        // Add to the beginning of the array for priority
-        candidateUrls.unshift(link);
-      } else {
-        // Add to the end as a fallback
-        candidateUrls.push(link);
-      }
-    });
-    
-    // Also get the current page URL (in case of automatic redirect)
+    // Check if we were redirected to a news site
     const currentUrl = await page.url();
+    console.log(`Current page URL: ${currentUrl}`);
+    
     if (currentUrl && 
         !currentUrl.includes('google.com') && 
         !currentUrl.includes('news.google.com') &&
         !excludePatterns.some(pattern => currentUrl.includes(pattern))) {
-      console.log(`Adding current URL to candidates: ${currentUrl}`);
+      console.log(`Found direct redirect to: ${currentUrl}`);
       candidateUrls.unshift(currentUrl);
+    }
+    
+    // If we've already found a good redirect, we can skip the DOM search
+    if (candidateUrls.length === 0) {
+      console.log("Looking for links in the page");
+      
+      // Get all links from the page
+      const links = await page.evaluate(() => {
+        // Look for links with specific attributes that Google News typically uses
+        const allLinks = [
+          ...Array.from(document.querySelectorAll('a[target="_blank"]')),
+          ...Array.from(document.querySelectorAll('a.DY5T1d')),
+          ...Array.from(document.querySelectorAll('a.VDXfz')),
+          ...Array.from(document.querySelectorAll('c-wiz a')),
+          ...Array.from(document.querySelectorAll('article a')),
+          ...Array.from(document.querySelectorAll('h3 a, h4 a'))
+        ];
+        
+        return Array.from(new Set(
+          allLinks.map(a => (a as HTMLAnchorElement).href)
+            .filter(href => href && (href.startsWith('http://') || href.startsWith('https://')))
+        ));
+      }).catch(e => {
+        const error = e as Error;
+        console.log("Error extracting links:", error);
+        return [];
+      });
+      
+      console.log(`Found ${links.length} links on the page`);
+      
+      // Filter the links to find likely article URLs
+      links.forEach(link => {
+        // Skip Google domains
+        if (link.includes('google.com') || link.includes('gstatic.com')) {
+          return;
+        }
+        
+        // Skip URLs matching exclusion patterns
+        if (excludePatterns.some(pattern => link.includes(pattern))) {
+          return;
+        }
+        
+        // Prioritize known news domains
+        if (newsDomains.some(domain => link.includes(domain))) {
+          // Add to the beginning of the array for priority
+          candidateUrls.unshift(link);
+        } else {
+          // Add to the end as a fallback
+          candidateUrls.push(link);
+        }
+      });
     }
     
     // Add any captured redirect URLs
@@ -159,40 +208,7 @@ export async function POST(request: NextRequest) {
       }
     });
     
-    // Try to click the first article link to trigger a redirect
-    try {
-      await page.evaluate(() => {
-        const articleLinks = [
-          ...Array.from(document.querySelectorAll('a[target="_blank"]')),
-          ...Array.from(document.querySelectorAll('a.DY5T1d')),
-          ...Array.from(document.querySelectorAll('a.VDXfz'))
-        ];
-        
-        if (articleLinks.length > 0) {
-          (articleLinks[0] as HTMLElement).click();
-        }
-      });
-      
-      // Wait for any redirect to happen
-      console.log("Waiting for potential redirect after click");
-      await new Promise(r => setTimeout(r, 3000));
-      
-      // Check the current URL again
-      const finalUrl = await page.url();
-      console.log(`Current page URL after click: ${finalUrl}`);
-      
-      if (finalUrl && 
-          !finalUrl.includes('google.com') && 
-          !finalUrl.includes('news.google.com') &&
-          !excludePatterns.some(pattern => finalUrl.includes(pattern)) &&
-          !candidateUrls.includes(finalUrl)) {
-        candidateUrls.unshift(finalUrl);
-      }
-    } catch (e) {
-      console.log('Error clicking link:', e);
-    }
-    
-    // Close the browser
+    // Close the browser to free resources
     if (browser) {
       console.log("Closing browser");
       await browser.close();
