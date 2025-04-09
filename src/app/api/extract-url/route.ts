@@ -1,74 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import puppeteer from 'puppeteer-core';
-import chromium from '@sparticuz/chromium-min';
-import { setTimeout } from 'timers/promises';
 
 // List of known news domains for prioritization
 const newsDomains = [
   'bbc.com', 'bbc.co.uk', 'nytimes.com', 'washingtonpost.com', 'theguardian.com',
-  'cnn.com', 'reuters.com', 'bloomberg.com', 'ft.com', 'wsj.com', 'forbes.com',
-  'economist.com', 'apnews.com', 'nbcnews.com', 'cbsnews.com', 'abcnews.go.com',
-  'foxnews.com', 'politico.com', 'huffpost.com', 'businessinsider.com', 'techcrunch.com'
+  'cnn.com', 'reuters.com', 'bloomberg.com', 'ft.com', 'wsj.com', 'forbes.com'
+  // Add more as needed
 ];
 
 // List of patterns to exclude from consideration
 const excludePatterns = [
   'fonts.googleapis', 'googletagmanager', 'google-analytics', 'analytics', 'gtag',
-  'tracking', 'pixel', 'ad.doubleclick', 'facebook.com/tr', 'cdn', 'ajax.googleapis',
-  'beacon', '.js', '.css', '.png', '.jpg', '.gif', '.svg', 'favicon', 'wp-content',
-  'logo', 'assets', 'static', 'metrics', 'stats', 'events', 'collect'
+  'tracking', 'pixel', 'ad.doubleclick', 'facebook.com/tr', 'cdn', 'ajax.googleapis'
+  // Add more as needed
 ];
-
-/**
- * Attempts to launch the browser with retries to handle ETXTBSY errors
- */
-async function launchBrowserWithRetry(maxRetries = 3, delay = 1000) {
-  let browser = null;
-  let retries = 0;
-  let lastError: Error | null = null;
-
-  // Configure chromium for serverless environment
-  chromium.setGraphicsMode = false;
-
-  while (retries < maxRetries) {
-    try {
-      console.log(`Attempt ${retries + 1} to launch browser`);
-      
-      // Get executable path with cache in /tmp
-      const executablePath = await chromium.executablePath("/tmp");
-      console.log(`Chromium executable path: ${executablePath}`);
-      
-      // Launch browser with minimal args
-      browser = await puppeteer.launch({
-        args: [...chromium.args, '--no-sandbox'],
-        executablePath: executablePath,
-        defaultViewport: chromium.defaultViewport,
-        headless: chromium.headless,
-      });
-      
-      console.log("Browser launched successfully");
-      return browser;
-    } catch (error) {
-      // Properly type the error
-      const typedError = error as Error;
-      lastError = typedError;
-      console.error(`Browser launch attempt ${retries + 1} failed:`, typedError.message);
-      
-      // If this is ETXTBSY error, wait and retry
-      if (typedError.message.includes('ETXTBSY')) {
-        console.log(`ETXTBSY error detected, waiting ${delay}ms before retry`);
-        await setTimeout(delay);
-        retries++;
-      } else {
-        // For other errors, throw immediately
-        throw typedError;
-      }
-    }
-  }
-  
-  // If we've exhausted retries, throw the last error
-  throw lastError;
-}
 
 /**
  * API handler for POST requests
@@ -98,8 +43,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Launch browser with retry mechanism for ETXTBSY errors
-    browser = await launchBrowserWithRetry();
+    // Connect to browserless.io
+    // Replace YOUR_API_KEY with your actual browserless API key
+    const browserWSEndpoint = `wss://chrome.browserless.io?token=${process.env.BROWSERLESS_API_KEY}`;
+    
+    // Connect to the browserless WebSocket endpoint
+    browser = await puppeteer.connect({
+      browserWSEndpoint,
+      defaultViewport: { width: 1280, height: 800 }
+    });
+    
+    console.log("Connected to browserless.io");
     
     // Create a new page
     const page = await browser.newPage();
@@ -122,21 +76,20 @@ export async function POST(request: NextRequest) {
       }
     });
     
-    // Navigate to the URL with a shorter timeout
+    // Navigate to the URL
     console.log(`Navigating to URL: ${url}`);
     try {
       await page.goto(url, { 
         waitUntil: 'domcontentloaded', 
-        timeout: 20000 
+        timeout: 25000  // Browserless has higher timeout limits
       });
     } catch (e) {
       const error = e as Error;
       console.log('Navigation timeout or error (expected for redirects):', error.message);
-      // Continue anyway as we might have captured redirects
     }
     
-    // Wait for JavaScript to run and possible redirects
-    await setTimeout(3000);
+    // Wait a bit for JavaScript to execute and redirects to happen
+    await page.waitForTimeout(3000);
     
     // Check if we were redirected to a news site
     const currentUrl = await page.url();
@@ -208,12 +161,12 @@ export async function POST(request: NextRequest) {
       }
     });
     
-    // Close the browser to free resources
+    // Close the browser connection
     if (browser) {
-      console.log("Closing browser");
-      await browser.close();
+      console.log("Disconnecting from browserless");
+      await browser.disconnect();
       browser = null;
-      console.log("Browser closed successfully");
+      console.log("Browser disconnected successfully");
     }
     
     console.log(`Found ${candidateUrls.length} candidate URLs`);
@@ -237,9 +190,9 @@ export async function POST(request: NextRequest) {
     // Make sure to close the browser in case of error
     if (browser) {
       try {
-        await browser.close();
+        await browser.disconnect();
       } catch (e) {
-        console.error('Error closing browser:', e);
+        console.error('Error disconnecting browser:', e);
       }
     }
     
