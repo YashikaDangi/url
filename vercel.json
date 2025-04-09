@@ -1,6 +1,6 @@
 {
   "functions": {
-    "api/extract-url/route.ts": {
+    "src/app/api/extract-url/route.ts": {
       "memory": 1024,
       "maxDuration": 60
     }
