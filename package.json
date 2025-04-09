@@ -1,31 +1,25 @@
 {
-  "name": "practice",
+  "name": "google-news-extractor",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "scripts": {
-    "dev": "node server.js",
+    "dev": "next dev",
     "build": "next build",
-    "start": "server.js",
+    "start": "next start",
     "lint": "next lint"
   },
   "dependencies": {
-    "axios": "^1.8.4",
-    "express": "^4.21.2",
-    "json": "^11.0.0",
-    "next": "15.1.7",
+    "next": "^14.1.0",
     "puppeteer": "^24.6.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
   },
   "devDependencies": {
-    "@eslint/eslintrc": "^3",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "eslint": "^9",
-    "eslint-config-next": "15.1.7",
-    "postcss": "^8",
-    "tailwindcss": "^3.4.1",
-    "typescript": "^5"
+    "@types/node": "^20.10.5",
+    "@types/react": "^18.2.45",
+    "eslint": "^8.56.0",
+    "eslint-config-next": "^14.1.0",
+    "typescript": "^5.3.3"
   }
 }
