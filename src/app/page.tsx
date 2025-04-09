@@ -16,8 +16,15 @@ export default function Home() {
     setExtractedUrl('');
 
     try {
-      const encodedUrl = encodeURIComponent(url);
-      const response = await fetch(`/api/extract?url=${encodedUrl}`);
+      // Updated to use the correct API endpoint
+      const response = await fetch('/api/extract-url', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url }),
+      });
+      
       const data = await response.json();
 
       if (!response.ok) {

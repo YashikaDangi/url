@@ -1,8 +1,11 @@
 {
   "functions": {
-    "app/api/extract-url/route.ts": {
+    "api/extract-url/route.ts": {
       "memory": 1024,
       "maxDuration": 60
     }
-  }
+  },
+  "rewrites": [
+    { "source": "/api/extract", "destination": "/api/extract-url" }
+  ]
 }

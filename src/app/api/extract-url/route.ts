@@ -5,13 +5,7 @@ import chromium from '@sparticuz/chromium-min';
 // Configure chromium for serverless environment
 chromium.setGraphicsMode = false;
 
-// A database of known Google News article IDs and their target URLs
-// This can be expanded as you encounter more URLs
-const knownArticles: Record<string, string> = {
-  // Your test URLs
-  'CBMiV0FVX3lxTE1sbXhyUGIwVHlYWlB2R0RoM1plSjE5eFVDeHlLWVV2VmI2d2VnaTN3cEJwMmwwRVQ5OTNQOFRMR3gtb2ZmaUtFS1Eya1VaVlg3d0xqR2JVZw': 'https://www.bbc.com/news/videos/c86p3z123g4o',
-  'CBMihwFBVV95cUxNTWlQMmkzWm1EdUdGeS1BOW41b1V0S3JhQUI0ZC1YSmZLR3B0aW0tcTBEdlREd3RLR3NtZ19RTDlrczZiamQtMWRrWWFtbnl0MktoUklPNE0xNFNjR3Y3d1FBSkNpRVZLdmxYdGdVaFVsMzlYbmhlby1talFIWUpzcFh4REpzcEk': 'https://www.bbc.com/news/videos/ca51xjqmq01o'
-};
+
 
 // List of known news domains for validation
 const newsDomains = [
@@ -35,29 +29,18 @@ const excludePatterns = [
 ];
 
 /**
- * API handler to extract target URL from Google News URL
- * @param request - The incoming request object
+ * Extract target URL using puppeteer
  */
-export async function POST(request: NextRequest) {
+async function extractTargetUrl(url: string) {
   let browser: Browser | null = null;
   
   try {
-    // Get the Google News URL from the request body
-    const { url } = await request.json();
-
-    if (!url || typeof url !== 'string') {
-      return NextResponse.json(
-        { error: 'Missing or invalid URL in request body' },
-        { status: 400 }
-      );
-    }
-
     // Validate that it's a Google News URL
     if (!url.includes('news.google.com')) {
-      return NextResponse.json(
-        { error: 'URL must be from news.google.com' },
-        { status: 400 }
-      );
+      return {
+        error: 'URL must be from news.google.com',
+        status: 400
+      };
     }
 
     // Extract the article ID
@@ -68,23 +51,20 @@ export async function POST(request: NextRequest) {
       articleId = url.split('/rss/articles/')[1].split('?')[0];
     }
 
-    // First check: Is this a known article ID?
-    if (articleId && knownArticles[articleId]) {
-      return NextResponse.json({ 
-        targetUrl: knownArticles[articleId],
-        source: "known_article"
-      }, { status: 200 });
-    }
 
+    console.log("Launching puppeteer...");
+    
     // Launch puppeteer with minimal settings
     browser = await puppeteer.launch({
-      args: [...chromium.args, '--disable-web-security'],
+      args: [...chromium.args, '--disable-web-security', '--no-sandbox', '--disable-setuid-sandbox'],
       defaultViewport: { width: 1280, height: 800 },
       executablePath: await chromium.executablePath(),
       headless: true,
       ignoreHTTPSErrors: true,
     });
 
+    console.log("Puppeteer launched successfully");
+    
     // Create a new page
     const page = await browser.newPage();
     
@@ -94,13 +74,19 @@ export async function POST(request: NextRequest) {
     // Collect candidate URLs
     const candidateUrls: string[] = [];
     
+    console.log(`Navigating to URL: ${url}`);
+    
     // Start by navigating to the URL without interception to let it fully load
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(e => {
       console.log('Navigation error (expected during redirects):', e.message);
     });
     
+    console.log("Page loaded, waiting for JavaScript execution...");
+    
     // Wait a moment for JavaScript to execute
     await new Promise(r => setTimeout(r, 3000));
+    
+    console.log("Extracting links from page...");
     
     // Get all links from the page
     const links = await page.evaluate(() => {
@@ -119,6 +105,8 @@ export async function POST(request: NextRequest) {
           .filter(href => href && (href.startsWith('http://') || href.startsWith('https://')))
       ));
     }).catch(() => []);
+    
+    console.log(`Found ${links.length} links on the page`);
     
     // Filter the links to find likely article URLs
     links.forEach(link => {
@@ -142,8 +130,12 @@ export async function POST(request: NextRequest) {
       }
     });
     
+    console.log(`Identified ${candidateUrls.length} candidate URLs`);
+    
     // Try to click the first article link to trigger a redirect
     try {
+      console.log("Attempting to click on article link...");
+      
       await page.evaluate(() => {
         const articleLinks = [
           ...Array.from(document.querySelectorAll('a[target="_blank"]')),
@@ -152,19 +144,26 @@ export async function POST(request: NextRequest) {
         ];
         
         if (articleLinks.length > 0) {
+          console.log("Found article link to click");
           (articleLinks[0] as HTMLElement).click();
+        } else {
+          console.log("No clickable article links found");
         }
       });
       
       // Wait for any redirect to happen
+      console.log("Waiting for potential redirect...");
       await new Promise(r => setTimeout(r, 3000));
       
       // Check the current URL
       const finalUrl = await page.url();
+      console.log(`Current page URL after click: ${finalUrl}`);
+      
       if (finalUrl && 
           !finalUrl.includes('google.com') && 
           !finalUrl.includes('news.google.com') &&
           !excludePatterns.some(pattern => finalUrl.includes(pattern))) {
+        console.log(`Adding final URL to candidates: ${finalUrl}`);
         candidateUrls.unshift(finalUrl);
       }
     } catch (e) {
@@ -173,41 +172,109 @@ export async function POST(request: NextRequest) {
     
     // Close the browser
     if (browser) {
+      console.log("Closing browser...");
       await browser.close();
       browser = null;
+      console.log("Browser closed successfully");
     }
     
     // If we have candidate URLs, return the best one
     if (candidateUrls.length > 0) {
-      return NextResponse.json({ 
+      console.log(`Returning best candidate URL: ${candidateUrls[0]}`);
+      return { 
         targetUrl: candidateUrls[0],
-        source: "extracted_link"
-      }, { status: 200 });
+        source: "extracted_link",
+        status: 200
+      };
     }
- 
     
     // If all approaches fail, return an error
-    return NextResponse.json(
-      { 
-        error: 'Unable to extract target URL from Google News article',
-        articleId: articleId
-      },
-      { status: 404 }
-    );
+    return {
+      error: 'Unable to extract target URL from Google News article',
+      articleId: articleId,
+      status: 404
+    };
   } catch (error: any) {
     console.error('Error extracting target URL:', error);
     
     // Make sure to close the browser in case of error
     if (browser) {
       try {
+        console.log("Closing browser after error...");
         await browser.close();
+        console.log("Browser closed successfully after error");
       } catch (e) {
         console.error('Error closing browser:', e);
       }
     }
     
+    return {
+      error: `Failed to extract target URL: ${error.message || 'Unknown error'}`,
+      status: 500
+    };
+  }
+}
+
+/**
+ * API handler for GET requests
+ */
+export async function GET(request: NextRequest) {
+  try {
+    // Get the URL from the query parameters
+    const url = request.nextUrl.searchParams.get('url');
+    
+    if (!url) {
+      return NextResponse.json(
+        { error: 'Missing URL in query parameters' },
+        { status: 400 }
+      );
+    }
+    
+    console.log(`Processing GET request for URL: ${url}`);
+    
+    const result = await extractTargetUrl(url);
+    
     return NextResponse.json(
-      { error: `Failed to extract target URL: ${error.message || 'Unknown error'}` },
+      result.error ? { error: result.error, articleId: result.articleId } : { extractedUrl: result.targetUrl, source: result.source },
+      { status: result.status }
+    );
+  } catch (error: any) {
+    console.error('Error in GET handler:', error);
+    return NextResponse.json(
+      { error: `Error processing request: ${error.message || 'Unknown error'}` },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * API handler for POST requests
+ */
+export async function POST(request: NextRequest) {
+  try {
+    // Get the URL from the request body
+    const body = await request.json();
+    const url = body.url;
+    
+    if (!url || typeof url !== 'string') {
+      return NextResponse.json(
+        { error: 'Missing or invalid URL in request body' },
+        { status: 400 }
+      );
+    }
+    
+    console.log(`Processing POST request for URL: ${url}`);
+    
+    const result = await extractTargetUrl(url);
+    
+    return NextResponse.json(
+      result.error ? { error: result.error, articleId: result.articleId } : { extractedUrl: result.targetUrl, source: result.source },
+      { status: result.status }
+    );
+  } catch (error: any) {
+    console.error('Error in POST handler:', error);
+    return NextResponse.json(
+      { error: `Error processing request: ${error.message || 'Unknown error'}` },
       { status: 500 }
     );
   }
