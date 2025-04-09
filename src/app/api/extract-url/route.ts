@@ -49,16 +49,16 @@ export async function POST(request: NextRequest) {
     // Configure chromium for serverless environment
     chromium.setGraphicsMode = false;
     
-    // Get executable path with proper await
-    const executablePath = await chromium.executablePath();
+    // Get executable path with proper await and cache folder specification
+    const executablePath = await chromium.executablePath("/tmp");
     console.log(`Chromium executable path: ${executablePath}`);
     
     // Setup Puppeteer with properly awaited executable path
     browser = await puppeteer.launch({
-      args: [...chromium.args, '--disable-web-security', '--no-sandbox', '--disable-setuid-sandbox'],
-      defaultViewport: { width: 1280, height: 800 },
+      args: chromium.args,
+      defaultViewport: chromium.defaultViewport,
       executablePath: executablePath,
-      headless: true,
+      headless: chromium.headless,
       ignoreHTTPSErrors: true,
     });
 

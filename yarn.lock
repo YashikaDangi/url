@@ -207,10 +207,10 @@
   resolved "https://registry.yarnpkg.com/@rushstack/eslint-patch/-/eslint-patch-1.11.0.tgz#75dce8e972f90bba488e2b0cc677fb233aa357ab"
   integrity sha512-zxnHvoMQVqewTJr/W4pKjF0bMGiKJv1WX7bSrkl46Hg0QjESbzBROWK0Wg4RphzSOS5Jiy7eFimmM3UgMrMZbQ==
 
-"@sparticuz/chromium-min@^119.0.6":
-  version "119.0.1-next.0"
-  resolved "https://registry.yarnpkg.com/@sparticuz/chromium-min/-/chromium-min-119.0.1-next.0.tgz#76153c829207de91d6f7d69184a97d7d7e9d5d03"
-  integrity sha512-2VScnXx5gnDYQnstpdUb6SQCLERau7BMi0ob6Cn0/8LRIfV9K2NNMdr2bWpGgTWIOkOO/DbQ6jFMJrXinPbPDQ==
+"@sparticuz/chromium-min@^119.0.2":
+  version "119.0.2"
+  resolved "https://registry.yarnpkg.com/@sparticuz/chromium-min/-/chromium-min-119.0.2.tgz#339ccc9492887f520c1ceb5316fd00398c17b4d8"
+  integrity sha512-66ztqT2MScSzbK3Jv6tViEqc2prgKLOX2lst2l89GlKl64Y4Mh72ZlEppjkXybjAVNb1B5IqFVtq67t++En9kA==
   dependencies:
     follow-redirects "^1.15.3"
     tar-fs "^3.0.4"
@@ -2400,7 +2400,7 @@ punycode@^2.1.0:
   resolved "https://registry.yarnpkg.com/punycode/-/punycode-2.3.1.tgz#027422e2faec0b25e1549c3e1bd8309b9133b6e5"
   integrity sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==
 
-puppeteer-core@^21.5.2:
+puppeteer-core@^21.5.1:
   version "21.11.0"
   resolved "https://registry.yarnpkg.com/puppeteer-core/-/puppeteer-core-21.11.0.tgz#6c60ec350f1a3a2152179c68166da6edfce18a23"
   integrity sha512-ArbnyA3U5SGHokEvkfWjW+O8hOxV1RSJxOgriX/3A4xZRqixt9ZFHD0yPgZQF05Qj0oAqi8H/7stDorjoHY90Q==
