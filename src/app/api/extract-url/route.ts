@@ -43,14 +43,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Connect to browserless.io
-    // Replace YOUR_API_KEY with your actual browserless API key
-    const browserWSEndpoint = `wss://chrome.browserless.io?token=${process.env.BROWSERLESS_API_KEY}`;
+    // Configure launch parameters
+    const launchArgs = JSON.stringify({
+      args: ['--window-size=1920,1080'],
+      headless: true,
+      stealth: true,
+      timeout: 30000
+    });
+
+    // Connect to browserless.io with proper configuration
+    const browserWSEndpoint = `wss://production-sfo.browserless.io/?token=${process.env.BROWSERLESS_API_KEY}&launch=${encodeURIComponent(launchArgs)}`;
     
     // Connect to the browserless WebSocket endpoint
     browser = await puppeteer.connect({
       browserWSEndpoint,
-      defaultViewport: { width: 1280, height: 800 }
+      defaultViewport: { width: 1920, height: 1080 }
     });
     
     console.log("Connected to browserless.io");
@@ -81,7 +88,7 @@ export async function POST(request: NextRequest) {
     try {
       await page.goto(url, { 
         waitUntil: 'domcontentloaded', 
-        timeout: 25000  // Browserless has higher timeout limits
+        timeout: 25000
       });
     } catch (e) {
       const error = e as Error;
